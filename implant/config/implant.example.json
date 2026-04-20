@@ -1,0 +1,6 @@
+{
+  "server_url": "http://127.0.0.1:8024",
+  "interval": 5,
+  "jitter": 0
+}
+
