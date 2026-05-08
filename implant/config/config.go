@@ -4,30 +4,23 @@ import (
 	_ "embed"
 	"encoding/json"
 	"errors"
-	"os"
+
+	"xhc2_for_studying/protocol"
 )
 
-const localConfigPath = "implant/config/implant.json"
-
-//go:embed implant.example.json
-var embeddedExampleConfig []byte
+//go:embed implant.json
+var embeddedConfig []byte
 
 type BeaconConfig struct {
-	Interval  int64  `json:"interval"`
-	Jitter    int64  `json:"jitter"`
-	ServerURL string `json:"server_url"`
+	ServerURL string            `json:"server_url"`
+	Interval  int64             `json:"interval"`
+	Jitter    int64             `json:"jitter"`
+	C2Profile protocol.C2Profile `json:"c2_profile"`
 }
 
 func Load() (*BeaconConfig, error) {
-	configBytes := embeddedExampleConfig
-	if localConfig, err := os.ReadFile(localConfigPath); err == nil {
-		configBytes = localConfig
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return nil, err
-	}
-
 	var cfg BeaconConfig
-	if err := json.Unmarshal(configBytes, &cfg); err != nil {
+	if err := json.Unmarshal(embeddedConfig, &cfg); err != nil {
 		return nil, err
 	}
 	if err := cfg.Validate(); err != nil {
@@ -48,6 +41,15 @@ func (c *BeaconConfig) Validate() error {
 	}
 	if c.Jitter < 0 {
 		return errors.New("jitter must be greater than or equal to zero")
+	}
+	if len(c.C2Profile.PathSegments) == 0 {
+		return errors.New("c2_profile.path_segments is required")
+	}
+	if len(c.C2Profile.Extensions) == 0 {
+		return errors.New("c2_profile.extensions is required")
+	}
+	if c.C2Profile.EncoderModulus <= 0 {
+		return errors.New("c2_profile.encoder_modulus must be > 0")
 	}
 	return nil
 }

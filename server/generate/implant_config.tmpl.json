@@ -1,0 +1,23 @@
+{
+  "server_url": "{{.ServerURL}}",
+  "interval": {{.Interval}},
+  "jitter": {{.Jitter}},
+  "c2_profile": {
+    "path_segments": [
+{{- range $i, $seg := .C2Profile.PathSegments}}
+{{- if $i}},{{end}}
+      {"value": "{{.Value}}", "is_file": {{.IsFile}}}
+{{- end}}
+    ],
+    "extensions": [
+{{- range $i, $ext := .C2Profile.Extensions}}
+{{- if $i}},{{end}}
+      "{{.}}"
+{{- end}}
+    ],
+    "min_path_length": {{.C2Profile.MinPathLength}},
+    "max_path_length": {{.C2Profile.MaxPathLength}},
+    "nonce_mode": "{{.C2Profile.NonceMode}}",
+    "encoder_modulus": {{.C2Profile.EncoderModulus}}
+  }
+}

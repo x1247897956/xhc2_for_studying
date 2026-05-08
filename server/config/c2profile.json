@@ -1,0 +1,19 @@
+{
+  "path_segments": [
+    {"value": "api", "is_file": false},
+    {"value": "assets", "is_file": false},
+    {"value": "static", "is_file": false},
+    {"value": "v1", "is_file": false},
+    {"value": "data", "is_file": false},
+    {"value": "chunk", "is_file": true},
+    {"value": "bundle", "is_file": true},
+    {"value": "app", "is_file": true},
+    {"value": "index", "is_file": true},
+    {"value": "main", "is_file": true}
+  ],
+  "extensions": ["js", "php", "html", ""],
+  "min_path_length": 1,
+  "max_path_length": 3,
+  "nonce_mode": "urlparam",
+  "encoder_modulus": 256
+}

