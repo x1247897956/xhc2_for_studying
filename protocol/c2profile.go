@@ -7,6 +7,13 @@ const (
 	NonceModeURL      = "url"      // nonce 作为路径的一段 /xxx/api/...
 )
 
+// 每种 C2 消息类型固定映射到一个文件扩展名。
+const (
+	ExtRegister   = ".php"  // 注册
+	ExtCheckin    = ".js"   // 心跳 / 任务下发
+	ExtTaskResult = ".html" // 任务结果回传（预留）
+)
+
 // HTTPC2PathSegment 表示 C2 Profile 中的一个路径片段。
 // IsFile=true 表示这是一个文件名（不含扩展名），false 表示是目录段。
 type HTTPC2PathSegment struct {

