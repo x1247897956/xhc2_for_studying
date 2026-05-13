@@ -3,7 +3,7 @@ package handlers
 import (
 	"fmt"
 	"time"
-	
+
 	"xhc2_for_studying/protocol"
 	beaconProtocol "xhc2_for_studying/protocol/beacon"
 	"xhc2_for_studying/server/core"
@@ -12,16 +12,17 @@ import (
 
 func HandleRegister(
 	beaconStore *store.BeaconStore,
+	sessionStore *store.SessionStore,
 	req *beaconProtocol.RegisterRequest,
 	remoteAddress string,
 ) (*beaconProtocol.RegisterResponse, error) {
-	if beaconStore == nil || req == nil {
+	if beaconStore == nil || req == nil || sessionStore == nil {
 		return nil, fmt.Errorf("invalid register request")
 	}
-	
+
 	beaconID := newBeaconID()
 	now := time.Now().Unix()
-	
+
 	beacon := &core.Beacon{
 		ID:            beaconID,
 		Hostname:      req.Hostname,
@@ -33,9 +34,9 @@ func HandleRegister(
 		LastCheckIn:   now,
 		RemoteAddress: remoteAddress,
 	}
-	
+
 	beaconStore.Add(beacon)
-	
+
 	return &beaconProtocol.RegisterResponse{
 		BeaconID: beaconID,
 	}, nil
@@ -50,7 +51,7 @@ func HandleCheckin(
 	if beaconStore == nil || taskStore == nil || req == nil {
 		return nil, fmt.Errorf("invalid checkin request")
 	}
-	
+
 	now := time.Now().Unix()
 	if err := beaconStore.UpdateCheckIn(req.BeaconID, now, remoteAddress); err != nil {
 		return nil, err
@@ -70,7 +71,7 @@ func HandleCheckin(
 			Payload: task.Payload,
 		})
 	}
-	
+
 	return &beaconProtocol.CheckinResponse{
 		Tasks: tasks,
 	}, nil

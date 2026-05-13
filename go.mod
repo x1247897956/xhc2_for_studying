@@ -2,9 +2,14 @@ module xhc2_for_studying
 
 go 1.25.8
 
-require github.com/gin-gonic/gin v1.12.0
+require (
+	filippo.io/age v1.3.1
+	github.com/gin-gonic/gin v1.12.0
+	golang.org/x/crypto v0.48.0
+)
 
 require (
+	filippo.io/hpke v0.4.0 // indirect
 	github.com/bytedance/gopkg v0.1.3 // indirect
 	github.com/bytedance/sonic v1.15.0 // indirect
 	github.com/bytedance/sonic/loader v0.5.0 // indirect
@@ -29,7 +34,6 @@ require (
 	github.com/ugorji/go/codec v1.3.1 // indirect
 	go.mongodb.org/mongo-driver/v2 v2.5.0 // indirect
 	golang.org/x/arch v0.22.0 // indirect
-	golang.org/x/crypto v0.48.0 // indirect
 	golang.org/x/net v0.51.0 // indirect
 	golang.org/x/sys v0.41.0 // indirect
 	golang.org/x/text v0.34.0 // indirect

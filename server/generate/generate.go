@@ -11,28 +11,30 @@ import (
 	"xhc2_for_studying/protocol"
 )
 
-//go:embed implant_config.tmpl.json
+//go:embed implant_config.gotmpl
 var configTemplateBytes []byte
 
 type implantConfigData struct {
-	ServerURL string
-	Interval  int64
-	Jitter    int64
-	C2Profile *protocol.C2Profile
+	ServerURL       string
+	Interval        int64
+	Jitter          int64
+	ServerPublicKey string
+	C2Profile       *protocol.C2Profile
 }
 
 // GenerateImplantConfig 使用 C2Profile 和操作员参数渲染 implant.json。
-func GenerateImplantConfig(serverURL string, interval, jitter int64, c2Profile *protocol.C2Profile) ([]byte, error) {
+func GenerateImplantConfig(serverURL string, interval, jitter int64, serverPublicKey string, c2Profile *protocol.C2Profile) ([]byte, error) {
 	tmpl, err := template.New("implant.json").Parse(string(configTemplateBytes))
 	if err != nil {
 		return nil, fmt.Errorf("parse config template: %w", err)
 	}
 
 	data := implantConfigData{
-		ServerURL: serverURL,
-		Interval:  interval,
-		Jitter:    jitter,
-		C2Profile: c2Profile,
+		ServerURL:       serverURL,
+		Interval:        interval,
+		Jitter:          jitter,
+		ServerPublicKey: serverPublicKey,
+		C2Profile:       c2Profile,
 	}
 
 	var buf bytes.Buffer

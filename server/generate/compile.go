@@ -30,9 +30,9 @@ func BuildImplant(projectRoot, outputPath string) error {
 }
 
 // GenerateAndBuild 是生成+编译的一键入口。
-func GenerateAndBuild(projectRoot, serverURL string, interval, jitter int64, c2Profile *protocol.C2Profile, outputPath string) error {
+func GenerateAndBuild(projectRoot, serverURL string, interval, jitter int64, serverPublicKey string, c2Profile *protocol.C2Profile, outputPath string) error {
 
-	configBytes, err := GenerateImplantConfig(serverURL, interval, jitter, c2Profile)
+	configBytes, err := GenerateImplantConfig(serverURL, interval, jitter, serverPublicKey, c2Profile)
 	if err != nil {
 		return fmt.Errorf("generate config: %w", err)
 	}

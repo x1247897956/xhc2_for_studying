@@ -20,10 +20,13 @@ func main() {
 		log.Fatalf("load server config: %v", err)
 	}
 
+	log.Printf("[+] Age public key: %s", cfg.AgePublicKey)
+
 	beaconStore := store.NewBeaconStore()
 	taskStore := store.NewServerTaskStore()
+	sessionStore := store.NewSessionStore()
 
-	httpServer := c2.NewHTTPServer(beaconStore, taskStore, cfg.C2Profile)
+	httpServer := c2.NewHTTPServer(beaconStore, taskStore, sessionStore, cfg.AgePrivateKey, cfg.C2Profile)
 	if err := httpServer.Run(*addr); err != nil {
 		log.Fatal(err)
 	}

