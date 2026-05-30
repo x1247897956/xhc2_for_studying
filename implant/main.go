@@ -1,9 +1,11 @@
+// The implant binary connects to a C2 server, performs key exchange,
+// registers as a beacon, and periodically checks in for tasks.
 package main
 
 import (
 	"context"
 	"log"
-	
+
 	"xhc2_for_studying/implant/client"
 	"xhc2_for_studying/implant/config"
 	implantRuntime "xhc2_for_studying/implant/runtime"
@@ -14,17 +16,17 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	
+
 	httpClient, err := client.NewClient(cfg)
 	if err != nil {
 		log.Fatal(err)
 	}
-	
+
 	runner, err := implantRuntime.NewRunner(cfg, httpClient)
 	if err != nil {
 		log.Fatal(err)
 	}
-	
+
 	if err := runner.Run(context.Background()); err != nil {
 		log.Fatal(err)
 	}

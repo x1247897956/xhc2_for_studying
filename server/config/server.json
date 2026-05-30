@@ -1,0 +1,39 @@
+{
+  "listen_addr": ":8024",
+  "generate_defaults": {
+    "server_url": "http://127.0.0.1:8024",
+    "path_prefix": "/api/v1",
+    "interval": 5,
+    "jitter": 0,
+    "goos": "linux",
+    "goarch": "amd64"
+  },
+  "database": {
+    "driver": "memory",
+    "dsn": ""
+  },
+  "c2_profile": {
+    "path_segments": [
+      {"value": "client", "is_file": false},
+      {"value": "session", "is_file": false},
+      {"value": "sync", "is_file": false},
+      {"value": "telemetry", "is_file": false},
+      {"value": "events", "is_file": false},
+      {"value": "init", "is_file": true},
+      {"value": "profile", "is_file": true},
+      {"value": "tasks", "is_file": true},
+      {"value": "results", "is_file": true},
+      {"value": "collect", "is_file": true}
+    ],
+    "keyexchange_extensions": [".woff", ".ttf", ".eot"],
+    "register_extensions": [".php", ".html", ".xml", ".json"],
+    "poll_extensions": [".js"],
+    "result_extensions": [".php"],
+    "user_agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "session_cookie_name": "sid",
+    "min_path_length": 1,
+    "max_path_length": 3,
+    "nonce_mode": "urlparam",
+    "encoder_modulus": 256
+  }
+}

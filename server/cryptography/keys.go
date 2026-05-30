@@ -1,3 +1,4 @@
+// Package cryptography provides utilities for managing Age encryption key pairs.
 package cryptography
 
 import (
@@ -12,8 +13,9 @@ const (
 	priFile = keyDir + "/age_private.key"
 )
 
-// EnsureAgeKeyPair 确保服务端 Age 密钥对存在，不存在则生成。
-// 返回公钥和私钥字符串。
+// EnsureAgeKeyPair checks whether the server Age key pair exists on disk and
+// returns it. If the keys are missing, it generates and persists a new pair
+// before returning it.
 func EnsureAgeKeyPair() (publicKey string, privateKey string, err error) {
 	if _, err := os.Stat(pubFile); err == nil {
 		if _, err := os.Stat(priFile); err == nil {
@@ -23,7 +25,8 @@ func EnsureAgeKeyPair() (publicKey string, privateKey string, err error) {
 	return GenerateAndSaveKeyPair()
 }
 
-// GenerateAndSaveKeyPair 生成新的 X25519 密钥对并写盘。
+// GenerateAndSaveKeyPair creates a new X25519 Age identity, writes both keys
+// to disk, and returns the public and private key strings.
 func GenerateAndSaveKeyPair() (publicKey string, privateKey string, err error) {
 	identity, err := age.GenerateX25519Identity()
 	if err != nil {
@@ -46,7 +49,8 @@ func GenerateAndSaveKeyPair() (publicKey string, privateKey string, err error) {
 	return pubStr, priStr, nil
 }
 
-// LoadKeyPair 从文件加载密钥对。
+// LoadKeyPair reads the Age public and private keys from disk and returns them
+// as strings.
 func LoadKeyPair() (publicKey string, privateKey string, err error) {
 	pubBytes, err := os.ReadFile(pubFile)
 	if err != nil {

@@ -1,17 +1,24 @@
 package client
 
 import (
-	"encoding/base64"
+	"xhc2_for_studying/protocol"
 )
 
-// encryptAndEncode 加密明文并 Base64 编码。
-// 返回: encodedBody, nonceBase64（用于放 URL）, error。
-func (c *Client) encryptAndEncode(plaintext []byte) (encodedBody []byte, nonceB64 string, err error) {
-	packet, nonceB64, err := c.cipherCtx.Encrypt(plaintext)
+// encryptAndEncode encrypts the plaintext, picks a random encoder, and returns
+// the encoded body together with an encoder negotiation nonce. The server
+// derives the encoder ID from the nonce via nonce % EncoderModulus.
+func (c *Client) encryptAndEncode(plaintext []byte) (encodedBody []byte, encoderNonce int, err error) {
+	packet, _, err := c.cipherCtx.Encrypt(plaintext)
 	if err != nil {
-		return nil, "", err
+		return nil, 0, err
 	}
-	encoded := make([]byte, base64.StdEncoding.EncodedLen(len(packet)))
-	base64.StdEncoding.Encode(encoded, packet)
-	return encoded, nonceB64, nil
+
+	enc := protocol.RandomEncoder()
+	encoded, err := enc.Encode(packet)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	nonce := protocol.GenerateNonce(enc.ID(), c.c2Profile.EncoderModulus)
+	return encoded, nonce, nil
 }

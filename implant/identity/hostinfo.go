@@ -1,3 +1,4 @@
+// Package identity collects host information used for beacon registration.
 package identity
 
 import (
@@ -6,6 +7,8 @@ import (
 	"runtime"
 )
 
+// HostInfo contains basic host identification data sent to the C2 server
+// during beacon registration.
 type HostInfo struct {
 	Hostname string
 	Username string
@@ -13,6 +16,8 @@ type HostInfo struct {
 	Arch     string
 }
 
+// CollectHostInfo gathers the hostname, username, OS, and architecture
+// of the current machine.
 func CollectHostInfo() (*HostInfo, error) {
 	hostName, err := os.Hostname()
 	if err != nil {

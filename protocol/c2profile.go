@@ -1,47 +1,97 @@
+// Package protocol defines shared types and constants for the C2 protocol,
+// including message framing, encryption, key exchange, and C2 profile
+// configuration.
 package protocol
 
-// NonceMode 决定 nonce 嵌入 URL 的位置。
-// 当前固定使用 urlparam 模式。
+import "math/rand/v2"
+
+// NonceModeURLParam is the name of the nonce transport mode that embeds
+// the encoder identifier inside a URL query parameter.
 const (
 	NonceModeURLParam = "urlparam"
 )
 
-// 每种 C2 消息类型固定映射到一个文件扩展名。
+// Well-known message type constants used to dispatch C2 traffic.
 const (
-	ExtKeyExchange = ".html" // 密钥交换（握手）
-	ExtRegister    = ".php"  // 注册
-	ExtCheckin     = ".js"   // 心跳 / 任务下发
+	MsgKeyExchange = "keyexchange"
+	MsgRegister    = "register"
+	MsgPoll        = "poll"
+	MsgResult      = "result"
 )
 
-// HTTPC2PathSegment 表示 C2 Profile 中的一个路径片段。
-// IsFile=true 表示这是一个文件名（不含扩展名），false 表示是目录段。
+// ExtensionMap maps each message type to a file extension that is unique
+// to this implant instance.
+type ExtensionMap struct {
+	KeyExchange string `json:"keyexchange"`
+	Register    string `json:"register"`
+	Poll        string `json:"poll"`
+	Result      string `json:"result"`
+}
+
+// ExtToMsgType resolves a file extension string back to the corresponding
+// message type constant. It returns an empty string when the extension is
+// unknown.
+func (m *ExtensionMap) ExtToMsgType(ext string) string {
+	switch ext {
+	case m.KeyExchange:
+		return MsgKeyExchange
+	case m.Register:
+		return MsgRegister
+	case m.Poll:
+		return MsgPoll
+	case m.Result:
+		return MsgResult
+	default:
+		return ""
+	}
+}
+
+// GenerateExtensionMap randomly assigns file extensions for each message
+// type from the pools defined in the C2 profile.
+func GenerateExtensionMap(profile *C2Profile) ExtensionMap {
+	hkExt := profile.KeyExchangeExtensions[rand.IntN(len(profile.KeyExchangeExtensions))]
+	regExt := profile.RegisterExtensions[rand.IntN(len(profile.RegisterExtensions))]
+	pollExt := profile.PollExtensions[rand.IntN(len(profile.PollExtensions))]
+	resultExt := profile.ResultExtensions[rand.IntN(len(profile.ResultExtensions))]
+	return ExtensionMap{
+		KeyExchange: hkExt,
+		Register:    regExt,
+		Poll:        pollExt,
+		Result:      resultExt,
+	}
+}
+
+// HTTPC2PathSegment represents a single segment in a constructed C2 URL
+// path. It may be a literal string or a file with an extension.
 type HTTPC2PathSegment struct {
 	Value  string `json:"value"`
 	IsFile bool   `json:"is_file"`
 }
 
-// C2Profile 描述 HTTP C2 的随机化行为。
-// 这份配置在 Server 端定义，通过模板渲染 bake 进 Implant 二进制。
+// C2Profile describes the HTTP C2 randomization behaviour. It defines
+// which path segments, file extensions, nonce transport mode, and encoder
+// parameters the implant should use.
 type C2Profile struct {
-	// PathSegments 是路径片段的候选池。每个片段标记为目录或文件。
-	// 目录段示例: "api", "assets", "static", "v1"
-	// 文件段示例: "chunk", "bundle", "app", "index"
-	PathSegments []HTTPC2PathSegment `json:"path_segments"`
+	PathSegments          []HTTPC2PathSegment `json:"path_segments"`
+	KeyExchangeExtensions []string            `json:"keyexchange_extensions"`
+	RegisterExtensions    []string            `json:"register_extensions"`
+	PollExtensions        []string            `json:"poll_extensions"`
+	ResultExtensions      []string            `json:"result_extensions"`
+	UserAgent             string              `json:"user_agent"`
+	SessionCookieName     string              `json:"session_cookie_name"`
+	MinPathLength         int                 `json:"min_path_length"`
+	MaxPathLength         int                 `json:"max_path_length"`
+	NonceMode             string              `json:"nonce_mode"`
+	EncoderModulus        int                 `json:"encoder_modulus"`
+}
 
-	// Extensions 是文件扩展名的候选池。空字符串表示无扩展名。
-	// 示例: ["js", "php", "html", ""]
-	Extensions []string `json:"extensions"`
-
-	// MinPathLength / MaxPathLength 控制每次请求生成的目录段数量范围。
-	// 实际值在 [MinPathLength, MaxPathLength] 内随机。
-	MinPathLength int `json:"min_path_length"`
-	MaxPathLength int `json:"max_path_length"`
-
-	// NonceMode 决定 nonce 放在 URL 路径中还是查询参数中。
-	NonceMode string `json:"nonce_mode"`
-
-	// EncoderModulus 是 nonce 取模运算的模数。
-	// nonce % EncoderModulus = EncoderID，Server 据此选择解码器。
-	// 必须大于 encoder 的数量，建议取一个较大的质数。
-	EncoderModulus int `json:"encoder_modulus"`
+// IsKeyExchangeExt reports whether the given file extension belongs to
+// the key-exchange extension pool of this profile.
+func (p *C2Profile) IsKeyExchangeExt(ext string) bool {
+	for _, e := range p.KeyExchangeExtensions {
+		if e == ext {
+			return true
+		}
+	}
+	return false
 }

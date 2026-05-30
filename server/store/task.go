@@ -4,30 +4,45 @@ import (
 	"errors"
 	"sync"
 	"time"
-	
+
 	"xhc2_for_studying/protocol"
 	"xhc2_for_studying/server/core"
 )
 
+// ErrServerTaskNotFound is returned when a task lookup by ID fails.
 var ErrServerTaskNotFound = errors.New("task not found")
 
-type ServerTaskStore struct {
+// MemoryServerTaskStore holds the in-memory registry of all server-side tasks,
+// protected by a read-write mutex.
+type MemoryServerTaskStore struct {
 	mu    sync.RWMutex
 	tasks map[string]*core.ServerTask
 }
 
-func (s *ServerTaskStore) AddTask(task *core.ServerTask) {
+// NewServerTaskStore creates and returns an initialized ServerTaskStore.
+func NewServerTaskStore() ServerTaskStore {
+	return &MemoryServerTaskStore{
+		tasks: make(map[string]*core.ServerTask),
+	}
+}
+
+// AddTask inserts or overwrites the task record keyed by its ID. Nil values
+// and empty IDs are silently ignored.
+func (s *MemoryServerTaskStore) AddTask(task *core.ServerTask) error {
 	if task == nil || task.TaskID == "" {
-		return
+		return nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	taskCopy := *task
 	s.tasks[task.TaskID] = &taskCopy
+	return nil
 }
 
-func (s *ServerTaskStore) GetTask(taskID string) (*core.ServerTask, error) {
+// GetTask returns a copy of the task identified by taskID, or
+// ErrServerTaskNotFound.
+func (s *MemoryServerTaskStore) GetTask(taskID string) (*core.ServerTask, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	task, ok := s.tasks[taskID]
@@ -38,60 +53,43 @@ func (s *ServerTaskStore) GetTask(taskID string) (*core.ServerTask, error) {
 	return &taskCopy, nil
 }
 
-func NewServerTaskStore() *ServerTaskStore {
-	return &ServerTaskStore{
-		tasks: make(map[string]*core.ServerTask),
-	}
-}
-
-func (s *ServerTaskStore) GetPendingTasksByImplantID(implantID string) []*core.ServerTask {
+// GetPendingTasksByImplantID returns copies of all tasks with status "pending"
+// for the given implant ID.
+func (s *MemoryServerTaskStore) GetPendingTasksByImplantID(implantID string) []*core.ServerTask {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	
+
 	result := make([]*core.ServerTask, 0)
 	for _, task := range s.tasks {
-		if task.ImplantID != implantID {
+		if task.ImplantID != implantID || task.Status != "pending" {
 			continue
 		}
-		if task.Status != "pending" {
-			continue
-		}
-		
+
 		taskCopy := *task
 		result = append(result, &taskCopy)
 	}
 	return result
 }
 
-func (s *ServerTaskStore) UpdateTask(taskID string, taskRes protocol.TaskResult) error {
+// UpdateTask applies the result from a completed task to the stored task
+// record.
+func (s *MemoryServerTaskStore) UpdateTask(taskID string, taskRes protocol.TaskResult) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	task, ok := s.tasks[taskID]
 	if !ok {
 		return ErrServerTaskNotFound
 	}
-	
-	s.updateTaskResult(task, taskRes)
-	s.updateTaskStatus(task, taskRes)
-	s.updateTaskCompleted(task, taskRes)
-	
-	return nil
-}
 
-func (s *ServerTaskStore) updateTaskResult(task *core.ServerTask, taskRes protocol.TaskResult) {
 	task.Result = taskRes
-}
-
-func (s *ServerTaskStore) updateTaskStatus(task *core.ServerTask, taskRes protocol.TaskResult) {
 	task.Status = taskRes.Status
 	task.Error = taskRes.Error
-}
-
-func (s *ServerTaskStore) updateTaskCompleted(task *core.ServerTask, taskRes protocol.TaskResult) {
 	if !taskRes.Completed.IsZero() {
 		task.CompletedAt = taskRes.Completed
-		return
+	} else {
+		task.CompletedAt = time.Now()
 	}
-	task.CompletedAt = time.Now()
+
+	return nil
 }

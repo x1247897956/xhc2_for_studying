@@ -1,5 +1,8 @@
 {
   "server_url": "{{.ServerURL}}",
+  "path_prefix": "{{.PathPrefix}}",
+  "implant_age_public_key": "{{.ImplantAgePublicKey}}",
+  "implant_age_private_key": "{{.ImplantAgePrivateKey}}",
   "server_public_key": "{{.ServerPublicKey}}",
   "interval": {{.Interval}},
   "jitter": {{.Jitter}},
@@ -10,15 +13,41 @@
       {"value": "{{.Value}}", "is_file": {{.IsFile}}}
 {{- end}}
     ],
-    "extensions": [
-{{- range $i, $ext := .C2Profile.Extensions}}
+    "keyexchange_extensions": [
+{{- range $i, $ext := .C2Profile.KeyExchangeExtensions}}
 {{- if $i}},{{end}}
       "{{.}}"
 {{- end}}
     ],
+    "register_extensions": [
+{{- range $i, $ext := .C2Profile.RegisterExtensions}}
+{{- if $i}},{{end}}
+      "{{.}}"
+{{- end}}
+    ],
+    "poll_extensions": [
+{{- range $i, $ext := .C2Profile.PollExtensions}}
+{{- if $i}},{{end}}
+      "{{.}}"
+{{- end}}
+    ],
+    "result_extensions": [
+{{- range $i, $ext := .C2Profile.ResultExtensions}}
+{{- if $i}},{{end}}
+      "{{.}}"
+{{- end}}
+    ],
+    "user_agent": "{{.C2Profile.UserAgent}}",
+    "session_cookie_name": "{{.C2Profile.SessionCookieName}}",
     "min_path_length": {{.C2Profile.MinPathLength}},
     "max_path_length": {{.C2Profile.MaxPathLength}},
     "nonce_mode": "{{.C2Profile.NonceMode}}",
     "encoder_modulus": {{.C2Profile.EncoderModulus}}
+  },
+  "ext_map": {
+    "keyexchange": "{{.ExtMap.KeyExchange}}",
+    "register": "{{.ExtMap.Register}}",
+    "poll": "{{.ExtMap.Poll}}",
+    "result": "{{.ExtMap.Result}}"
   }
 }

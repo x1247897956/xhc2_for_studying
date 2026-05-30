@@ -2,7 +2,7 @@ package task
 
 import (
 	"os/user"
-	
+
 	"xhc2_for_studying/protocol"
 )
 

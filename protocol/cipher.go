@@ -11,16 +11,18 @@ import (
 	"golang.org/x/crypto/chacha20poly1305"
 )
 
-// ErrReplayAttack 表示检测到重放攻击。
+// ErrReplayAttack is returned when a previously seen ciphertext packet
+// is replayed, indicating a potential replay attack.
 var ErrReplayAttack = errors.New("replay attack detected")
 
-// CipherContext 封装 ChaCha20Poly1305 AEAD 对称加解密，并内置重放保护。
+// CipherContext wraps a ChaCha20Poly1305 AEAD cipher and provides replay
+// protection by caching SHA-256 digests of every received ciphertext.
 type CipherContext struct {
 	aead   cipher.AEAD
-	replay sync.Map // map[[32]byte]bool，SHA256 摘要缓存
+	replay sync.Map // map[[32]byte]bool, caches SHA-256 digests of seen packets.
 }
 
-// NewCipherContext 用 32 字节密钥创建加密上下文。
+// NewCipherContext creates a new encryption context from a 32-byte key.
 func NewCipherContext(key []byte) (*CipherContext, error) {
 	if len(key) != chacha20poly1305.KeySize {
 		return nil, errors.New("invalid key size, need 32 bytes")
@@ -32,9 +34,11 @@ func NewCipherContext(key []byte) (*CipherContext, error) {
 	return &CipherContext{aead: aead}, nil
 }
 
-// Encrypt 返回 packet(nonce+密文+标签) 和 nonce 的 base64 字符串（用于 URL）。
+// Encrypt seals plaintext and returns a packet containing nonce followed
+// by ciphertext and authentication tag. It also returns the base64-encoded
+// nonce for URL transport.
 func (c *CipherContext) Encrypt(plaintext []byte) (packet []byte, nonceB64 string, err error) {
-	nonce := make([]byte, c.aead.NonceSize()) // 12 字节
+	nonce := make([]byte, c.aead.NonceSize()) // 12 bytes for XChaCha20.
 	if _, err := rand.Read(nonce); err != nil {
 		return nil, "", err
 	}
@@ -45,17 +49,19 @@ func (c *CipherContext) Encrypt(plaintext []byte) (packet []byte, nonceB64 strin
 	return packet, base64.StdEncoding.EncodeToString(nonce), nil
 }
 
-// Decrypt 从 packet 中拆出 nonce，先验重放，再解密并验证认证标签。
+// Decrypt extracts the nonce from the packet, checks for replay via the
+// SHA-256 digest cache, and then decrypts and verifies the authentication
+// tag.
 func (c *CipherContext) Decrypt(packet []byte) ([]byte, error) {
-	// 1. 防重放检查：计算密文 SHA256 摘要
+	// Check for replay: compute the SHA-256 digest of the ciphertext.
 	digest := sha256.Sum256(packet)
 
-	// 2. 如果摘要已存在，则是重放攻击
+	// If the digest already exists, this is a replayed packet.
 	if _, exists := c.replay.LoadOrStore(digest, true); exists {
 		return nil, ErrReplayAttack
 	}
 
-	// 3. 正常解密
+	// Proceed with normal decryption.
 	nonceSize := c.aead.NonceSize()
 	if len(packet) < nonceSize {
 		return nil, errors.New("ciphertext too short")
@@ -65,5 +71,5 @@ func (c *CipherContext) Decrypt(packet []byte) ([]byte, error) {
 	return c.aead.Open(nil, nonce, sealed, nil)
 }
 
-// NonceSize = 12
+// NonceSize is the size of the ChaCha20Poly1305 nonce in bytes (12).
 const NonceSize = chacha20poly1305.NonceSize

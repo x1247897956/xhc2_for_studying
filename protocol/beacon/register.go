@@ -1,6 +1,9 @@
+// Package beacon defines the request and response structures for beacon
+// registration and check-in.
 package beacon
 
-// RegisterRequest 是 Beacon 首次上线接入 server 时发送的注册信息。
+// RegisterRequest carries the host metadata an implant sends during its
+// initial registration with the C2 server.
 type RegisterRequest struct {
 	Hostname string `json:"hostname"`
 	Username string `json:"username"`
@@ -10,7 +13,8 @@ type RegisterRequest struct {
 	Jitter   int64  `json:"jitter"`
 }
 
-// RegisterResponse 返回 server 为该 Beacon 分配的逻辑标识。
+// RegisterResponse returns the logical beacon identifier assigned by the
+// server after a successful registration.
 type RegisterResponse struct {
 	BeaconID string `json:"beacon_id"`
 }

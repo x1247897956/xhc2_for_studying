@@ -1,5 +1,6 @@
 {
   "server_url": "http://127.0.0.1:8024",
+  "path_prefix": "/cdn/assets",
   "interval": 5,
   "jitter": 0,
   "c2_profile": {

@@ -6,30 +6,38 @@ import (
 	"xhc2_for_studying/protocol"
 )
 
-// SessionStore 持有每个 sessionToken 对应的加密上下文。
-// server 在 KeyExchange 握手后存入，后续 Register 和 Checkin 通过 X-Session-Token 头取出使用。
-type SessionStore struct {
-	mu       sync.RWMutex
-	sessions map[string]*protocol.CipherContext
+// Session holds the cipher context and extension map for an active implant
+// session.
+type Session struct {
+	CipherCtx *protocol.CipherContext
+	ExtMap    protocol.ExtensionMap
+	BeaconID  string
 }
 
-// NewSessionStore 创建空的 session 存储。
+// SessionStore maps session tokens to their corresponding Session objects,
+// protected by a read-write mutex.
+type SessionStore struct {
+	mu       sync.RWMutex
+	sessions map[string]*Session
+}
+
+// NewSessionStore creates and returns an initialized SessionStore.
 func NewSessionStore() *SessionStore {
 	return &SessionStore{
-		sessions: make(map[string]*protocol.CipherContext),
+		sessions: make(map[string]*Session),
 	}
 }
 
-// Set 存入 BeaconID 对应的 CipherContext。
-func (s *SessionStore) Set(beaconID string, ctx *protocol.CipherContext) {
+// Set associates a session token with the given Session.
+func (s *SessionStore) Set(token string, session *Session) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.sessions[beaconID] = ctx
+	s.sessions[token] = session
 }
 
-// Get 取出 BeaconID 对应的 CipherContext。不存在返回 nil。
-func (s *SessionStore) Get(beaconID string) *protocol.CipherContext {
+// Get retrieves the Session for a given token, or nil if not found.
+func (s *SessionStore) Get(token string) *Session {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.sessions[beaconID]
+	return s.sessions[token]
 }

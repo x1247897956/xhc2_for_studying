@@ -1,0 +1,43 @@
+# Local AI/tooling workspace
+.codex/
+.codex
+.claude/
+
+# IDEs and editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Go build/test output
+bin/
+build/
+dist/
+tmp/
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+coverage.out
+coverage.html
+
+# Logs
+*.log
+logs/
+
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# Local implant config with real server addresses
+implant/config/implant.json
+*.key
